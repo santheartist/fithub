@@ -1,0 +1,404 @@
+name: Deploy FitHub
+
+on:
+  push:
+    branches:
+      - main          # Production deployment
+      - develop       # Staging deployment
+  pull_request:
+    branches:
+      - main
+
+env:
+  AWS_REGION: us-east-1
+  REGISTRY: ghcr.io
+  IMAGE_NAME: ${{ github.repository }}
+
+jobs:
+  # ============================================================================
+  # LINTING & TESTING
+  # ============================================================================
+  lint-backend:
+    name: Lint Backend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        working-directory: scienceLift/backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt -r requirements-dev.txt
+      
+      - name: Lint with pylint
+        working-directory: scienceLift/backend
+        continue-on-error: true
+        run: pylint app --fail-under=7.0 || true
+      
+      - name: Type check with mypy
+        working-directory: scienceLift/backend
+        continue-on-error: true
+        run: mypy app --ignore-missing-imports || true
+
+  lint-frontend:
+    name: Lint Frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Setup Node.js
+        uses: actions/setup-node@v3
+        with:
+          node-version: '18'
+          cache: 'npm'
+          cache-dependency-path: scienceLift/frontend/package-lock.json
+      
+      - name: Install dependencies
+        working-directory: scienceLift/frontend
+        run: npm ci
+      
+      - name: Run ESLint
+        working-directory: scienceLift/frontend
+        continue-on-error: true
+        run: npm run lint || true
+      
+      - name: Type check
+        working-directory: scienceLift/frontend
+        continue-on-error: true
+        run: npm run type-check || true
+
+  test-backend:
+    name: Test Backend
+    runs-on: ubuntu-latest
+    needs: lint-backend
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: test_user
+          POSTGRES_PASSWORD: test_password
+          POSTGRES_DB: fithub_test
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+      
+      - name: Install dependencies
+        working-directory: scienceLift/backend
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pytest pytest-cov
+      
+      - name: Run tests
+        working-directory: scienceLift/backend
+        env:
+          DATABASE_URL: postgresql://test_user:test_password@localhost:5432/fithub_test
+        run: pytest --cov=app --cov-report=xml --cov-report=term
+      
+      - name: Upload coverage
+        uses: codecov/codecov-action@v3
+        with:
+          files: ./scienceLift/backend/coverage.xml
+          fail_ci_if_error: false
+
+  # ============================================================================
+  # BUILD DOCKER IMAGES
+  # ============================================================================
+  build:
+    name: Build & Push Docker Images
+    runs-on: ubuntu-latest
+    needs: [lint-backend, lint-frontend, test-backend]
+    if: github.event_name == 'push'
+    permissions:
+      contents: read
+      packages: write
+    
+    outputs:
+      backend-image: ${{ steps.meta-backend.outputs.tags }}
+      frontend-image: ${{ steps.meta-frontend.outputs.tags }}
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v2
+      
+      - name: Log in to Container Registry
+        uses: docker/login-action@v2
+        with:
+          registry: ${{ env.REGISTRY }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      
+      # Backend Image
+      - name: Extract metadata (Backend)
+        id: meta-backend
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-backend
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=${{ github.ref == 'refs/heads/main' && 'prod' || 'staging' }}
+      
+      - name: Build and push Backend
+        uses: docker/build-push-action@v4
+        with:
+          context: scienceLift/backend
+          push: true
+          tags: ${{ steps.meta-backend.outputs.tags }}
+          labels: ${{ steps.meta-backend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      
+      # Frontend Image
+      - name: Extract metadata (Frontend)
+        id: meta-frontend
+        uses: docker/metadata-action@v4
+        with:
+          images: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}-frontend
+          tags: |
+            type=ref,event=branch
+            type=semver,pattern={{version}}
+            type=sha,prefix={{branch}}-
+            type=raw,value=${{ github.ref == 'refs/heads/main' && 'prod' || 'staging' }}
+      
+      - name: Build and push Frontend
+        uses: docker/build-push-action@v4
+        with:
+          context: scienceLift/frontend
+          push: true
+          tags: ${{ steps.meta-frontend.outputs.tags }}
+          labels: ${{ steps.meta-frontend.outputs.labels }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+  # ============================================================================
+  # DEPLOY TO STAGING (develop branch)
+  # ============================================================================
+  deploy-staging:
+    name: Deploy to Staging
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/develop' && github.event_name == 'push'
+    environment: staging
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Deploy Backend to Staging
+        env:
+          IMAGE: ${{ needs.build.outputs.backend-image }}
+          ENVIRONMENT: staging
+        run: |
+          aws ecs update-service \
+            --cluster fithub-staging \
+            --service fithub-backend-staging \
+            --force-new-deployment \
+            --region ${{ env.AWS_REGION }}
+      
+      - name: Deploy Frontend to Staging S3
+        env:
+          S3_BUCKET: fithub-staging-frontend
+          DISTRIBUTION_ID: ${{ secrets.STAGING_CLOUDFRONT_DISTRIBUTION }}
+        run: |
+          cd scienceLift/frontend
+          npm ci
+          npm run build
+          aws s3 sync out s3://${{ env.S3_BUCKET }}/ --delete
+          aws cloudfront create-invalidation --distribution-id ${{ env.DISTRIBUTION_ID }} --paths "/*"
+      
+      - name: Notify Staging Deployment
+        if: success()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: 'Staging deployment successful! 🚀'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+        continue-on-error: true
+
+  # ============================================================================
+  # DEPLOY TO PRODUCTION (main branch)
+  # ============================================================================
+  deploy-production:
+    name: Deploy to Production
+    runs-on: ubuntu-latest
+    needs: build
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Run Database Migrations
+        env:
+          DB_URL: ${{ secrets.DATABASE_URL_PROD }}
+        run: |
+          docker run \
+            -e DATABASE_URL=$DB_URL \
+            ${{ needs.build.outputs.backend-image }} \
+            alembic upgrade head
+      
+      - name: Deploy Backend to Production
+        run: |
+          aws ecs update-service \
+            --cluster fithub-production \
+            --service fithub-backend-prod \
+            --force-new-deployment \
+            --region ${{ env.AWS_REGION }}
+      
+      - name: Deploy Frontend to Production S3
+        env:
+          S3_BUCKET: fithub-prod-frontend
+          DISTRIBUTION_ID: ${{ secrets.PROD_CLOUDFRONT_DISTRIBUTION }}
+        run: |
+          cd scienceLift/frontend
+          npm ci
+          npm run build
+          aws s3 sync out s3://${{ env.S3_BUCKET }}/ --delete
+          aws cloudfront create-invalidation --distribution-id ${{ env.DISTRIBUTION_ID }} --paths "/*"
+      
+      - name: Run Health Check
+        run: |
+          for i in {1..30}; do
+            if curl -f https://api.fithub.app/health; then
+              echo "Health check passed"
+              exit 0
+            fi
+            sleep 10
+          done
+          exit 1
+      
+      - name: Notify Production Deployment
+        if: success()
+        uses: 8398a7/action-slack@v3
+        with:
+          status: ${{ job.status }}
+          text: 'Production deployment successful! 🚀 Version: ${{ github.sha }}'
+          webhook_url: ${{ secrets.SLACK_WEBHOOK }}
+      
+      - name: Rollback on Failure
+        if: failure()
+        run: |
+          echo "Triggering rollback..."
+          aws ecs update-service \
+            --cluster fithub-production \
+            --service fithub-backend-prod \
+            --task-definition fithub-backend-prod:PREVIOUS \
+            --region ${{ env.AWS_REGION }}
+
+  # ============================================================================
+  # SECURITY & MONITORING
+  # ============================================================================
+  security-scan:
+    name: Security Scan
+    runs-on: ubuntu-latest
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Run Trivy vulnerability scanner
+        uses: aquasecurity/trivy-action@master
+        with:
+          scan-type: 'fs'
+          scan-ref: '.'
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+      
+      - name: Upload Trivy results
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: 'trivy-results.sarif'
+      
+      - name: Check Python dependencies
+        working-directory: scienceLift/backend
+        continue-on-error: true
+        run: |
+          pip install safety
+          safety check --json || true
+
+  # ============================================================================
+  # INFRASTRUCTURE UPDATES (Terraform)
+  # ============================================================================
+  terraform-plan:
+    name: Terraform Plan
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    
+    steps:
+      - uses: actions/checkout@v3
+      
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v2
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.AWS_REGION }}
+      
+      - name: Setup Terraform
+        uses: hashicorp/setup-terraform@v2
+        with:
+          terraform_version: 1.5.0
+      
+      - name: Terraform Format Check
+        working-directory: terraform
+        run: terraform fmt -check -recursive
+      
+      - name: Terraform Plan
+        working-directory: terraform
+        run: |
+          terraform init \
+            -backend-config="bucket=${{ secrets.TF_STATE_BUCKET }}" \
+            -backend-config="key=fithub-terraform.tfstate" \
+            -backend-config="region=${{ env.AWS_REGION }}"
+          terraform plan -out=tfplan
+      
+      - name: Comment PR with Plan
+        uses: actions/github-script@v6
+        if: github.event_name == 'pull_request'
+        with:
+          script: |
+            const fs = require('fs');
+            const plan = require('child_process').execSync(
+              'cd terraform && terraform show -json tfplan | jq .resource_changes'
+            ).toString();
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: '```\nTerraform Plan:\n' + plan.substring(0, 65000) + '\n```'
+            });
