@@ -4,7 +4,7 @@ WORKDIR /app
 
 # Copy frontend code
 COPY scienceLift/frontend/package*.json ./
-RUN npm ci
+RUN npm install
 
 COPY scienceLift/frontend .
 
