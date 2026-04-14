@@ -5,7 +5,7 @@ Profile settings endpoints.
 from fastapi import APIRouter, Depends, HTTPException, Header, UploadFile, File, Request
 from sqlalchemy.orm import Session
 from app.core.database import get_db
-from app.core.security import verify_token
+from app.core.security import verify_token, verify_password
 from app.models.models import User, UserPreferences
 from app.schemas.schemas import UserResponse, UserPreferencesResponse, UserPreferencesUpdate
 from pydantic import BaseModel
@@ -382,3 +382,53 @@ def update_user_preferences(
     db.refresh(preferences)
     
     return UserPreferencesResponse.from_orm(preferences)
+
+
+# ===== Account Deletion Endpoint =====
+
+class DeleteAccountRequest(BaseModel):
+    """Request schema for account deletion."""
+    password: str
+
+
+@router.delete("/me/account")
+def delete_user_account(
+    request_data: DeleteAccountRequest,
+    authorization: str = Header(None),
+    db: Session = Depends(get_db)
+):
+    """Delete current user's account permanently (with password verification)."""
+    user_id = get_current_user_id(authorization)
+    
+    user = db.query(User).filter(User.id == user_id).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Verify password
+    if not verify_password(request_data.password, user.password_hash):
+        logger.warning(f"Failed account deletion attempt for user {user_id}: incorrect password")
+        raise HTTPException(status_code=401, detail="Incorrect password")
+    
+    try:
+        logger.info(f"Deleting user account: {user_id} ({user.username})")
+        
+        # Delete all user-related data (cascade delete should handle most, but be explicit)
+        # 1. Delete user preferences
+        db.query(UserPreferences).filter(UserPreferences.user_id == user_id).delete()
+        
+        # 2. Delete the user (cascade delete will handle related data)
+        db.delete(user)
+        db.commit()
+        
+        logger.info(f"Successfully deleted user account: {user_id}")
+        return {
+            "message": "Account deleted successfully",
+            "user_id": user_id
+        }
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error deleting user account {user_id}: {type(e).__name__}: {str(e)}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail="Error deleting account. Please try again."
+        )
