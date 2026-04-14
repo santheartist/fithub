@@ -31,7 +31,12 @@ class Settings(BaseSettings):
     # Server
     DEBUG: bool = True
     BASE_URL: str = "http://localhost:8000"
-    CORS_ORIGINS: List[str] = ["http://localhost:3000", "http://localhost:3001", "http://localhost:8000"]
+    CORS_ORIGINS: List[str] = [
+        "http://localhost:3000", 
+        "http://localhost:3001", 
+        "http://localhost:8000",
+        "https://sciencelift-frontend.onrender.com"
+    ]
     API_PREFIX: str = "/api/v1"
     
     # Redis
