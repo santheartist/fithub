@@ -1,42 +1,137 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+"""
+Authentication endpoints.
+"""
+
+from fastapi import APIRouter, Depends, HTTPException, status, Header, Request
 from sqlalchemy.orm import Session
+from pydantic import BaseModel
 from app.core.database import get_db
-from app.core.security import verify_password, get_password_hash, create_access_token
-from app.models.models import User
-from app.schemas.schemas import LoginRequest, Token, UserCreate, User as UserSchema
+from app.schemas.schemas import UserCreate, UserResponse, TokenResponse, RefreshTokenRequest
+from app.services.user_service import UserService
+from app.core.security import create_access_token, create_refresh_token, verify_token, hash_password, verify_password
 from datetime import timedelta
+import logging
 
-router = APIRouter(prefix="/api/auth", tags=["auth"])
+logger = logging.getLogger(__name__)
+
+router = APIRouter(prefix="/auth", tags=["auth"])
 
 
-@router.post("/register", response_model=UserSchema)
-def register(user: UserCreate, db: Session = Depends(get_db)):
-    existing_user = db.query(User).filter(User.email == user.email).first()
-    if existing_user:
+def get_current_user(authorization: str = Header(None)):
+    """
+    Extract and verify current user from authorization header.
+    Returns user_id which can be used to fetch user from DB in endpoint.
+    """
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    
+    token = authorization.split(" ")[1]
+    payload = verify_token(token)
+    
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    return int(user_id)
+
+
+def get_full_picture_url(relative_path: str | None, request: Request) -> str | None:
+    """Convert relative picture path to full URL."""
+    if not relative_path:
+        return None
+    if relative_path.startswith('http://') or relative_path.startswith('https://'):
+        return relative_path
+    # Construct URL without the API route prefix
+    scheme = request.url.scheme
+    netloc = request.url.netloc
+    return f"{scheme}://{netloc}{relative_path}"
+
+
+def format_user_response(user, request: Request) -> dict:
+    """Format user object with full URLs for pictures."""
+    return {
+        "id": user.id,
+        "username": user.username,
+        "email": user.email,
+        "bio": user.bio,
+        "profile_picture_url": get_full_picture_url(user.profile_picture_url, request),
+        "banner_picture_url": get_full_picture_url(user.banner_picture_url, request),
+        "is_admin": user.is_admin,
+        "created_at": user.created_at
+    }
+
+
+class LoginRequest(BaseModel):
+    """Login request schema."""
+    email: str
+    password: str
+
+
+@router.post("/register", response_model=TokenResponse)
+def register(user_data: UserCreate, request: Request, db: Session = Depends(get_db)):
+    """Register a new user."""
+    # Check if user already exists
+    if UserService.get_user_by_username(db, user_data.username):
+        raise HTTPException(status_code=400, detail="Username already registered")
+    
+    if UserService.get_user_by_email(db, user_data.email):
         raise HTTPException(status_code=400, detail="Email already registered")
     
-    hashed_password = get_password_hash(user.password)
-    db_user = User(
-        username=user.username,
-        email=user.email,
-        hashed_password=hashed_password,
-        first_name=user.first_name,
-        last_name=user.last_name
-    )
-    db.add(db_user)
-    db.commit()
-    db.refresh(db_user)
-    return db_user
+    # Create user
+    user = UserService.create_user(db, user_data.username, user_data.email, user_data.password)
+    
+    # Create tokens
+    access_token = create_access_token({"sub": str(user.id)})
+    refresh_token = create_refresh_token({"sub": str(user.id)})
+    
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "user": format_user_response(user, request)
+    }
 
 
-@router.post("/login", response_model=Token)
-def login(credentials: LoginRequest, db: Session = Depends(get_db)):
-    user = db.query(User).filter(User.email == credentials.email).first()
-    if not user or not verify_password(credentials.password, user.hashed_password):
+@router.post("/login", response_model=TokenResponse)
+def login(credentials: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    """Login user and return tokens."""
+    # Find user by email
+    user = UserService.get_user_by_email(db, credentials.email)
+    if not user or not verify_password(credentials.password, user.password_hash):
         raise HTTPException(status_code=401, detail="Invalid credentials")
     
-    access_token_expires = timedelta(minutes=30)
-    access_token = create_access_token(
-        data={"sub": user.email}, expires_delta=access_token_expires
-    )
-    return {"access_token": access_token, "token_type": "bearer"}
+    # Create tokens
+    access_token = create_access_token({"sub": str(user.id)})
+    refresh_token = create_refresh_token({"sub": str(user.id)})
+    
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "user": format_user_response(user, request)
+    }
+
+
+@router.post("/refresh", response_model=TokenResponse)
+def refresh_token(req: RefreshTokenRequest, request: Request, db: Session = Depends(get_db)):
+    """Refresh access token using refresh token."""
+    # Verify refresh token
+    payload = verify_token(req.refresh_token)
+    if not payload:
+        raise HTTPException(status_code=401, detail="Invalid refresh token")
+    
+    user_id = payload.get("sub")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    
+    # Create new access token
+    access_token = create_access_token({"sub": user_id})
+    
+    return {
+        "access_token": access_token,
+        "refresh_token": req.refresh_token,  # Return same refresh token
+        "token_type": "bearer"
+    }

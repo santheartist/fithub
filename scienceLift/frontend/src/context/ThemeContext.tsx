@@ -1,25 +1,18 @@
-'use client'
+/**
+ * Theme context for dark mode management
+ */
 
-import React, { createContext, useContext, useState, ReactNode } from 'react'
+import React, { ReactNode } from 'react';
+import { ThemeProvider } from 'next-themes';
 
-const ThemeContext = createContext<any>(undefined)
+interface ThemeContextProviderProps {
+  children: ReactNode;
+}
 
-export function ThemeProvider({ children }: { children: ReactNode }) {
-  const [isDark, setIsDark] = useState(false)
-
-  const toggleTheme = () => setIsDark(!isDark)
-
+export const ThemeContextProvider: React.FC<ThemeContextProviderProps> = ({ children }) => {
   return (
-    <ThemeContext.Provider value={{ isDark, toggleTheme }}>
+    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
       {children}
-    </ThemeContext.Provider>
-  )
-}
-
-export function useTheme() {
-  const context = useContext(ThemeContext)
-  if (!context) {
-    throw new Error('useTheme must be used within ThemeProvider')
-  }
-  return context
-}
+    </ThemeProvider>
+  );
+};
