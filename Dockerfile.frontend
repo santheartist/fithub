@@ -2,13 +2,17 @@ FROM node:20-alpine AS builder
 
 WORKDIR /app
 
+# Accept build-time arguments for environment variables
+ARG NEXT_PUBLIC_API_URL=http://localhost:8000/api/v1
+
 # Copy frontend code
 COPY scienceLift/frontend/package*.json ./
 RUN npm install
 
 COPY scienceLift/frontend .
 
-# Build the application
+# Build the application with environment variables
+ENV NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL}
 RUN npm run build
 
 # Production stage
