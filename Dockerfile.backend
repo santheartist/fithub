@@ -7,10 +7,11 @@ RUN apt-get update && apt-get install -y \
     gcc \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy backend code
+# Copy requirements first and install dependencies
 COPY scienceLift/backend/requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Copy the rest of backend code
 COPY scienceLift/backend .
 
 # Expose port
@@ -20,5 +21,5 @@ EXPOSE 8000
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
     CMD python -c "import requests; requests.get('http://localhost:8000/docs')" || exit 1
 
-# Start the application
+# Start the application directly without start.sh
 CMD ["python", "-m", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8000"]
