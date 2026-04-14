@@ -1,0 +1,30 @@
+services:
+  - type: web
+    name: scienceLift-backend
+    runtime: docker
+    repo: https://github.com/santheartist/fithub
+    rootDir: scienceLift/backend
+    dockerfile: Dockerfile
+    envVars:
+      - key: PORT
+        value: 8000
+      - key: DATABASE_URL
+        value: sqlite:///./scienceLift.db
+      - key: OPENAI_API_KEY
+        sync: false
+      - key: SECRET_KEY
+        sync: false
+    autoDeploy: true
+
+  - type: web
+    name: scienceLift-frontend
+    runtime: docker
+    repo: https://github.com/santheartist/fithub
+    rootDir: scienceLift/frontend
+    dockerfile: Dockerfile
+    envVars:
+      - key: PORT
+        value: 3000
+      - key: NEXT_PUBLIC_API_BASE_URL
+        value: https://scienceLift-backend.onrender.com
+    autoDeploy: true
