@@ -3,7 +3,7 @@
  */
 
 import React, { useState } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter } from 'next/router';
 import Link from 'next/link';
 import { FiSearch, FiLogIn } from 'react-icons/fi';
 import { useAuth } from '@/context/AuthContext';
