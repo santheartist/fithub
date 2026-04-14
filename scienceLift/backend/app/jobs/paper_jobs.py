@@ -214,7 +214,7 @@ async def aggregate_papers_job():
                             summary = await AIService.summarize_paper(
                                 paper_obj.title,
                                 f"Journal: {paper_data.get('journal_name', 'N/A')}",
-                                use_openai=True  # Use OpenAI for better summaries
+                                use_openai= False # Use OpenAI for better summaries
                             )
                             
                             if summary:
