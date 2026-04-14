@@ -1,0 +1,11 @@
+{
+  "build": {
+    "builder": "nixpacks"
+  },
+  "deploy": {
+    "startCommand": "bash start.sh",
+    "nixpacks": {
+      "providers": ["python", "nodejs"]
+    }
+  }
+}
