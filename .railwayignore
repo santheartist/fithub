@@ -1,0 +1,14 @@
+# Ignore shell scripts - use Dockerfiles instead
+start.sh
+scienceLift/backend/start.sh
+scienceLift/frontend/start.sh
+
+# Other unnecessary files
+.git
+.github
+scripts/
+terraform/
+.vscode/
+*.md
+.env.example
+.env.railway
