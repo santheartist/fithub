@@ -73,46 +73,72 @@ class LoginRequest(BaseModel):
 @router.post("/register", response_model=TokenResponse)
 def register(user_data: UserCreate, request: Request, db: Session = Depends(get_db)):
     """Register a new user."""
-    # Check if user already exists
-    if UserService.get_user_by_username(db, user_data.username):
-        raise HTTPException(status_code=400, detail="Username already registered")
-    
-    if UserService.get_user_by_email(db, user_data.email):
-        raise HTTPException(status_code=400, detail="Email already registered")
-    
-    # Create user
-    user = UserService.create_user(db, user_data.username, user_data.email, user_data.password)
-    
-    # Create tokens
-    access_token = create_access_token({"sub": str(user.id)})
-    refresh_token = create_refresh_token({"sub": str(user.id)})
-    
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "user": format_user_response(user, request)
-    }
+    try:
+        logger.info(f"Registration attempt: {user_data.username} ({user_data.email})")
+        
+        # Check if user already exists
+        if UserService.get_user_by_username(db, user_data.username):
+            logger.warning(f"Registration failed: Username already exists - {user_data.username}")
+            raise HTTPException(status_code=400, detail="Username already registered")
+        
+        if UserService.get_user_by_email(db, user_data.email):
+            logger.warning(f"Registration failed: Email already exists - {user_data.email}")
+            raise HTTPException(status_code=400, detail="Email already registered")
+        
+        # Create user
+        user = UserService.create_user(db, user_data.username, user_data.email, user_data.password)
+        logger.info(f"✓ User registered successfully: {user.username} (ID: {user.id})")
+        
+        # Create tokens
+        access_token = create_access_token({"sub": str(user.id)})
+        refresh_token = create_refresh_token({"sub": str(user.id)})
+        
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "user": format_user_response(user, request)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"✗ Registration error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Registration failed")
 
 
 @router.post("/login", response_model=TokenResponse)
 def login(credentials: LoginRequest, request: Request, db: Session = Depends(get_db)):
     """Login user and return tokens."""
-    # Find user by email
-    user = UserService.get_user_by_email(db, credentials.email)
-    if not user or not verify_password(credentials.password, user.password_hash):
-        raise HTTPException(status_code=401, detail="Invalid credentials")
-    
-    # Create tokens
-    access_token = create_access_token({"sub": str(user.id)})
-    refresh_token = create_refresh_token({"sub": str(user.id)})
-    
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "user": format_user_response(user, request)
-    }
+    try:
+        logger.info(f"Login attempt: {credentials.email}")
+        
+        # Find user by email
+        user = UserService.get_user_by_email(db, credentials.email)
+        if not user:
+            logger.warning(f"Login failed: User not found - {credentials.email}")
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        if not verify_password(credentials.password, user.password_hash):
+            logger.warning(f"Login failed: Invalid password for user - {credentials.email}")
+            raise HTTPException(status_code=401, detail="Invalid credentials")
+        
+        logger.info(f"✓ Login successful: {user.username}")
+        
+        # Create tokens
+        access_token = create_access_token({"sub": str(user.id)})
+        refresh_token = create_refresh_token({"sub": str(user.id)})
+        
+        return {
+            "access_token": access_token,
+            "refresh_token": refresh_token,
+            "token_type": "bearer",
+            "user": format_user_response(user, request)
+        }
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"✗ Login error: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Login failed")
 
 
 @router.post("/refresh", response_model=TokenResponse)
