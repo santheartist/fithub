@@ -86,6 +86,11 @@ def get_papers(
     query = db.query(ResearchPaper)
     if category:
         query = query.filter(ResearchPaper.category == category)
+    # FILTER: Only count papers with summaries generated
+    query = query.filter(
+        (ResearchPaper.ai_summary.isnot(None)) & 
+        (ResearchPaper.ai_summary != "")
+    )
     total = query.count()
     
     # Get paginated results
@@ -194,6 +199,12 @@ def search_papers(
         )
     )
     
+    # FILTER: Only include papers with AI summaries generated
+    base_query = base_query.filter(
+        (ResearchPaper.ai_summary.isnot(None)) & 
+        (ResearchPaper.ai_summary != "")
+    )
+    
     if category:
         base_query = base_query.filter(ResearchPaper.category == category)
     
@@ -204,6 +215,11 @@ def search_papers(
             ResearchPaper.authors.ilike(f"%{search_term}%"),
             ResearchPaper.ai_summary.ilike(f"%{search_term}%")
         )
+    )
+    # FILTER: Only count papers with AI summaries generated
+    count_query = count_query.filter(
+        (ResearchPaper.ai_summary.isnot(None)) & 
+        (ResearchPaper.ai_summary != "")
     )
     if category:
         count_query = count_query.filter(ResearchPaper.category == category)
