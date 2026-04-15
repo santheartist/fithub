@@ -5,14 +5,19 @@ Database connection and session management.
 from sqlalchemy import create_engine, event
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker
-from sqlalchemy.pool import NullPool
+from sqlalchemy.pool import NullPool, QueuePool
 from app.core.config import settings
 import logging
 
 logger = logging.getLogger(__name__)
 
+# Log database configuration
+db_type = "SQLite" if settings.DATABASE_URL.startswith('sqlite') else "PostgreSQL"
+logger.info(f"Configuring {db_type} database connection...")
+
 # Create database engine
 if settings.DATABASE_URL.startswith('sqlite'):
+    logger.info("Using SQLite database (local development)")
     engine = create_engine(
         settings.DATABASE_URL,
         connect_args={
@@ -32,11 +37,20 @@ if settings.DATABASE_URL.startswith('sqlite'):
         cursor.execute("PRAGMA query_only=OFF")  # Ensure we can write
         cursor.close()
 else:
+    logger.info("Using PostgreSQL database (production/Render)")
     engine = create_engine(
         settings.DATABASE_URL,
         pool_pre_ping=True,
-        echo=settings.DEBUG
+        echo=settings.DEBUG,
+        pool_size=5,  # Render has connection limits
+        max_overflow=10,
+        pool_recycle=3600  # Recycle connections every hour
     )
+    
+    # Log successful PostgreSQL connection
+    @event.listens_for(engine, "connect")
+    def receive_connect(dbapi_conn, connection_record):
+        logger.info("PostgreSQL database connection established")
 
 # Create session factory
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
