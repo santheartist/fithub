@@ -13,8 +13,9 @@ import os
 class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
     
-    # Database
-    DATABASE_URL: str = "sqlite:///./scienceLift.db"
+    # Database - Use PostgreSQL on Render, SQLite locally
+    # Render provides DATABASE_URL environment variable pointing to PostgreSQL
+    DATABASE_URL: str = os.getenv("DATABASE_URL", "sqlite:///./scienceLift.db")
     
     # JWT
     SECRET_KEY: str = "dev-secret-key-change-in-production"
