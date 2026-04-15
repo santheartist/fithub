@@ -41,10 +41,16 @@ def get_saved_papers(
     authorization: str = Header(None),
     db: Session = Depends(get_db)
 ):
-    """Get user's saved papers."""
+    """Get user's saved papers. Filters out papers without summaries."""
     user_id = get_current_user_id(authorization)
     
     query = db.query(SavedPaper).filter(SavedPaper.user_id == user_id)
+    
+    # FILTER: Only include papers with AI summaries generated
+    query = query.join(ResearchPaper).filter(
+        (ResearchPaper.ai_summary.isnot(None)) & 
+        (ResearchPaper.ai_summary != "")
+    )
     
     saved_papers = query.offset(skip).limit(limit).all()
     total = query.count()
@@ -67,10 +73,16 @@ def get_reposts(
     authorization: str = Header(None),
     db: Session = Depends(get_db)
 ):
-    """Get user's reposts with full paper details."""
+    """Get user's reposts with full paper details. Filters out papers without summaries."""
     user_id = get_current_user_id(authorization)
     
     query = db.query(Repost).filter(Repost.user_id == user_id).order_by(Repost.created_at.desc())
+    
+    # FILTER: Only include papers with AI summaries generated
+    query = query.join(ResearchPaper).filter(
+        (ResearchPaper.ai_summary.isnot(None)) & 
+        (ResearchPaper.ai_summary != "")
+    )
     
     reposts = query.offset(skip).limit(limit).all()
     total = query.count()
