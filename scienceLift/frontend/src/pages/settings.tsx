@@ -6,13 +6,10 @@ import { getErrorMessage } from '@/lib/errorHandler';
 import { Header } from '@/components/Header';
 import { Sidebar } from '@/components/Sidebar';
 import LoadingSpinner from '@/components/LoadingSpinner';
-import ColorPicker from '@/components/ColorPicker';
-import { useThemePreferences } from '@/lib/useThemePreferences';
 
 export default function SettingsPage() {
   const router = useRouter();
   const { user, logout, updateUser } = useAuth();
-  const { preferences, updatePreferences } = useThemePreferences();
 
   const [loading, setLoading] = useState(false);
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
@@ -39,15 +36,6 @@ export default function SettingsPage() {
   const [deletePassword, setDeletePassword] = useState('');
   const [deleteConfirm, setDeleteConfirm] = useState('');
 
-  // Theme Settings
-  const [themeMode, setThemeMode] = useState('light');
-  const [primaryColor, setPrimaryColor] = useState('#0066cc');
-  const [accentColor, setAccentColor] = useState('#f5f5f5');
-  const [textPrimaryColor, setTextPrimaryColor] = useState('#1a1a1a');
-  const [textSecondaryColor, setTextSecondaryColor] = useState('#666666');
-  const [bgPrimaryColor, setBgPrimaryColor] = useState('#ffffff');
-  const [bgSecondaryColor, setBgSecondaryColor] = useState('#f5f5f5');
-
   useEffect(() => {
     if (!user) {
       router.push('/login');
@@ -55,19 +43,6 @@ export default function SettingsPage() {
     }
     loadProfile();
   }, [user]);
-
-  // Load theme preferences when they're fetched
-  useEffect(() => {
-    if (preferences) {
-      setThemeMode(preferences.theme_mode);
-      setPrimaryColor(preferences.primary_color);
-      setAccentColor(preferences.accent_color);
-      setTextPrimaryColor(preferences.text_primary_color);
-      setTextSecondaryColor(preferences.text_secondary_color);
-      setBgPrimaryColor(preferences.bg_primary_color);
-      setBgSecondaryColor(preferences.bg_secondary_color);
-    }
-  }, [preferences]);
 
   const loadProfile = async () => {
     try {
@@ -274,34 +249,6 @@ export default function SettingsPage() {
         logout();
         router.push('/');
       }, 2000);
-    } catch (err: any) {
-      showMessage('error', getErrorMessage(err));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  // Theme Settings
-  const handleUpdateTheme = async (e: React.FormEvent) => {
-    e.preventDefault();
-    try {
-      setLoading(true);
-      const token = localStorage.getItem('token') || sessionStorage.getItem('token');
-      if (!token) {
-        showMessage('error', 'Not authenticated');
-        return;
-      }
-      
-      await updatePreferences(token, {
-        theme_mode: themeMode,
-        primary_color: primaryColor,
-        accent_color: accentColor,
-        text_primary_color: textPrimaryColor,
-        text_secondary_color: textSecondaryColor,
-        bg_primary_color: bgPrimaryColor,
-        bg_secondary_color: bgSecondaryColor,
-      } as any);
-      showMessage('success', 'Theme settings updated successfully!');
     } catch (err: any) {
       showMessage('error', getErrorMessage(err));
     } finally {
@@ -517,121 +464,6 @@ export default function SettingsPage() {
                 className="w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 font-medium shadow-lg hover:shadow-purple-500/50 transform hover:scale-105 active:scale-95 transition"
               >
                 {loading ? 'Updating...' : 'Change Password'}
-              </button>
-            </form>
-          </div>
-
-          {/* Theme Customization */}
-          <div className="bg-white dark:bg-gradient-to-br dark:from-slate-800 dark:to-slate-900 rounded-2xl shadow-lg dark:shadow-xl border border-gray-200 dark:border-purple-500/20 mb-8 overflow-hidden hover:border-blue-300 dark:hover:border-purple-400/50 transition-all duration-300 dark:hover:shadow-2xl dark:hover:shadow-purple-500/20">
-            <div className="px-8 py-6 border-b border-gray-200 dark:border-purple-500/20 bg-gray-50 dark:bg-slate-800/50 dark:backdrop-blur-sm">
-              <h2 className="text-2xl font-bold text-gray-900 dark:text-slate-100">Theme Customization</h2>
-              <p className="text-gray-600 dark:text-slate-400 text-sm mt-1">Personalize the appearance of the website</p>
-            </div>
-            <form onSubmit={handleUpdateTheme} className="p-8 space-y-8">
-              {/* Theme Mode */}
-              <div>
-                <label className="block text-sm font-semibold text-gray-900 dark:text-slate-200 mb-4">Theme Mode</label>
-                <div className="flex gap-4">
-                  <button
-                    type="button"
-                    onClick={() => setThemeMode('light')}
-                    className={`flex-1 px-4 py-3 rounded-xl border-2 font-medium transition ${
-                      themeMode === 'light'
-                        ? 'bg-blue-100 dark:bg-blue-900/30 border-blue-500 text-blue-700 dark:text-blue-300'
-                        : 'bg-gray-100 dark:bg-slate-700/30 border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-300'
-                    }`}
-                  >
-                    ☀️ Light
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setThemeMode('dark')}
-                    className={`flex-1 px-4 py-3 rounded-xl border-2 font-medium transition ${
-                      themeMode === 'dark'
-                        ? 'bg-purple-100 dark:bg-purple-900/30 border-purple-500 text-purple-700 dark:text-purple-300'
-                        : 'bg-gray-100 dark:bg-slate-700/30 border-gray-300 dark:border-slate-600 text-gray-700 dark:text-slate-300'
-                    }`}
-                  >
-                    🌙 Dark
-                  </button>
-                </div>
-              </div>
-
-              {/* Color Customization */}
-              <div className="border-t border-gray-200 dark:border-slate-700 pt-8">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-6">Color Scheme</h3>
-                
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                  <ColorPicker
-                    label="Primary Color"
-                    value={primaryColor}
-                    onChange={setPrimaryColor}
-                    description="Main accent color for buttons and links"
-                  />
-                  <ColorPicker
-                    label="Accent Color"
-                    value={accentColor}
-                    onChange={setAccentColor}
-                    description="Secondary accent color"
-                  />
-                  <ColorPicker
-                    label="Text Primary"
-                    value={textPrimaryColor}
-                    onChange={setTextPrimaryColor}
-                    description="Main text color"
-                  />
-                  <ColorPicker
-                    label="Text Secondary"
-                    value={textSecondaryColor}
-                    onChange={setTextSecondaryColor}
-                    description="Secondary text color"
-                  />
-                  <ColorPicker
-                    label="Background Primary"
-                    value={bgPrimaryColor}
-                    onChange={setBgPrimaryColor}
-                    description="Main background color"
-                  />
-                  <ColorPicker
-                    label="Background Secondary"
-                    value={bgSecondaryColor}
-                    onChange={setBgSecondaryColor}
-                    description="Secondary background color"
-                  />
-                </div>
-              </div>
-
-              {/* Preview */}
-              <div className="border-t border-gray-200 dark:border-slate-700 pt-8">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-slate-100 mb-4">Preview</h3>
-                <div
-                  className="p-6 rounded-xl border-2 border-dashed"
-                  style={{
-                    backgroundColor: bgPrimaryColor,
-                    color: textPrimaryColor,
-                    borderColor: primaryColor,
-                  }}
-                >
-                  <p className="text-sm mb-4">This is a preview of your custom theme</p>
-                  <button
-                    type="button"
-                    className="px-4 py-2 rounded-lg font-medium transition"
-                    style={{
-                      backgroundColor: primaryColor,
-                      color: bgPrimaryColor,
-                    }}
-                  >
-                    Sample Button
-                  </button>
-                </div>
-              </div>
-
-              <button
-                type="submit"
-                disabled={loading}
-                className="w-full px-4 py-3 bg-gradient-to-r from-blue-600 to-purple-600 text-white rounded-xl hover:from-blue-700 hover:to-purple-700 disabled:opacity-50 font-semibold shadow-lg hover:shadow-purple-500/50 transform hover:scale-105 active:scale-95 transition"
-              >
-                {loading ? 'Saving...' : 'Save Theme'}
               </button>
             </form>
           </div>
