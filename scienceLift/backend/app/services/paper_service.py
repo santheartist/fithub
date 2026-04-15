@@ -16,10 +16,20 @@ class PaperService:
     
     @staticmethod
     def get_papers(db: Session, skip: int = 0, limit: int = 10, category: Optional[str] = None):
-        """Get papers with optional category filtering."""
+        """Get papers with optional category filtering. Filters out papers without summaries."""
         query = db.query(ResearchPaper)
+        
+        # Filter by category if provided
         if category:
             query = query.filter(ResearchPaper.category == category)
+        
+        # FILTER: Only include papers with AI summaries generated
+        # Exclude NULL and empty string summaries
+        query = query.filter(
+            (ResearchPaper.ai_summary.isnot(None)) & 
+            (ResearchPaper.ai_summary != "")
+        )
+        
         return query.offset(skip).limit(limit).all()
     
     @staticmethod
@@ -29,13 +39,22 @@ class PaperService:
     
     @staticmethod
     def search_papers(db: Session, query_str: str, skip: int = 0, limit: int = 10, category: Optional[str] = None):
-        """Search papers by title or authors."""
+        """Search papers by title or authors. Filters out papers without summaries."""
         query = db.query(ResearchPaper).filter(
             (ResearchPaper.title.ilike(f"%{query_str}%")) |
             (ResearchPaper.authors.ilike(f"%{query_str}%"))
         )
+        
         if category:
             query = query.filter(ResearchPaper.category == category)
+        
+        # FILTER: Only include papers with AI summaries generated
+        # Exclude NULL and empty string summaries
+        query = query.filter(
+            (ResearchPaper.ai_summary.isnot(None)) & 
+            (ResearchPaper.ai_summary != "")
+        )
+        
         return query.offset(skip).limit(limit).all()
     
     @staticmethod
