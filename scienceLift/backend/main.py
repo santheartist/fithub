@@ -32,13 +32,28 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 # Create database tables
-Base.metadata.create_all(bind=engine)
+try:
+    logger.info("Initializing database schema...")
+    Base.metadata.create_all(bind=engine)
+    logger.info("✓ Database schema initialized successfully")
+except Exception as e:
+    logger.error(f"✗ Failed to initialize database schema: {e}")
+    raise
 
 # Log configuration status
 logger.info("=" * 80)
 logger.info("Application Configuration")
 logger.info("=" * 80)
-logger.info(f"Database: {settings.DATABASE_URL}")
+
+# Log database type
+if settings.DATABASE_URL.startswith('sqlite'):
+    logger.info(f"Database: SQLite (Local Development)")
+else:
+    # Mask password in PostgreSQL connection string for logging
+    db_url_masked = settings.DATABASE_URL.split('@')[0] + '@****' if '@' in settings.DATABASE_URL else 'PostgreSQL'
+    logger.info(f"Database: PostgreSQL (Production)")
+    logger.info(f"Connection: {db_url_masked}")
+
 logger.info(f"Debug Mode: {settings.DEBUG}")
 logger.info(f"API Prefix: {settings.API_PREFIX}")
 if settings.OPENAI_API_KEY and len(settings.OPENAI_API_KEY) > 10:
